@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { DealStatus, Deal, PipelineColumn } from '@/types';
+import { DealStatus, Deal } from '@/types';
 import { formatCurrency, formatRelativeDate, cn, DEAL_STAGES } from '@/lib/utils';
-import { GripVertical, Building2, User, Calendar, DollarSign, MoreHorizontal, ExternalLink } from 'lucide-react';
-import Link from 'next/link';
+import { Building2, Calendar, DollarSign, ExternalLink } from 'lucide-react';
+import { usePanelManager } from '@/components/layout/panel-manager';
 
 interface Props {
   initialColumns: (typeof DEAL_STAGES[0] & { deals: Deal[] })[];
@@ -16,6 +16,11 @@ export function PipelineBoard({ initialColumns }: Props) {
   const [draggedDeal, setDraggedDeal] = useState<Deal | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<DealStatus | null>(null);
   const supabase = createClient();
+  const { openPanel } = usePanelManager();
+
+  useEffect(() => {
+    setColumns(initialColumns);
+  }, [initialColumns]);
 
   const handleDragStart = (e: React.DragEvent, deal: Deal) => {
     setDraggedDeal(deal);
@@ -98,7 +103,21 @@ export function PipelineBoard({ initialColumns }: Props) {
           {/* Cards */}
           <div className="flex-1 space-y-2.5 min-h-[200px] px-1">
             {column.deals.map((deal) => (
-              <DealCard key={deal.id} deal={deal} onDragStart={handleDragStart} onDragEnd={handleDragEnd} />
+              <DealCard
+                key={deal.id}
+                deal={deal}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onOpen={(selected) =>
+                  openPanel({
+                    id: `deal-${selected.id}`,
+                    type: 'deal-detail',
+                    title: selected.title || 'Deal',
+                    dealId: selected.id,
+                  })
+                }
+                isDragging={Boolean(draggedDeal)}
+              />
             ))}
 
             {column.deals.length === 0 && (
@@ -117,10 +136,14 @@ function DealCard({
   deal,
   onDragStart,
   onDragEnd,
+  onOpen,
+  isDragging,
 }: {
   deal: Deal;
   onDragStart: (e: React.DragEvent, deal: Deal) => void;
   onDragEnd: () => void;
+  onOpen: (deal: Deal) => void;
+  isDragging: boolean;
 }) {
   return (
     <div
@@ -128,14 +151,25 @@ function DealCard({
       draggable
       onDragStart={(e) => onDragStart(e, deal)}
       onDragEnd={onDragEnd}
-      className="bg-white border border-gray-100 rounded-xl p-4 shadow-card hover:shadow-card-hover transition-all cursor-grab active:cursor-grabbing group"
+      onClick={() => {
+        if (!isDragging) onOpen(deal);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (!isDragging) onOpen(deal);
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      className="bg-white border border-gray-100 rounded-xl p-4 shadow-card hover:shadow-card-hover transition-all cursor-grab active:cursor-grabbing group focus:outline-none focus:ring-2 focus:ring-brand-500/20"
     >
       {/* Top row */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
-          <Link href={`/deals/${deal.id}`} className="font-semibold text-sm text-midnight-800 hover:text-brand-500 transition-colors line-clamp-1">
+          <span className="font-semibold text-sm text-midnight-800 hover:text-brand-500 transition-colors line-clamp-1">
             {deal.title}
-          </Link>
+          </span>
           {deal.brand && (
             <div className="flex items-center gap-1.5 mt-1">
               <Building2 className="w-3 h-3 text-gray-400" />
@@ -143,9 +177,17 @@ function DealCard({
             </div>
           )}
         </div>
-        <Link href={`/deals/${deal.id}`} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-100 rounded">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!isDragging) onOpen(deal);
+          }}
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-100 rounded"
+          aria-label={`Open ${deal.title}`}
+        >
           <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
-        </Link>
+        </button>
       </div>
 
       {/* Value */}

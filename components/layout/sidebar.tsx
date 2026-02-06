@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
-  LayoutGrid, FileText, Users, Building2, Receipt,
+  LayoutGrid, Users, Building2, Receipt,
   Calendar, Settings, Zap, CreditCard, ChevronLeft
 } from 'lucide-react';
 import { useState } from 'react';
@@ -12,7 +12,6 @@ import type { User } from '@/types';
 
 const NAV_ITEMS = [
   { href: '/pipeline', label: 'Pipeline', icon: LayoutGrid },
-  { href: '/deals/new', label: 'New Deal', icon: FileText },
   { href: '/brands', label: 'Brands', icon: Building2 },
   { href: '/contacts', label: 'Contacts', icon: Users },
   { href: '/invoices', label: 'Invoices', icon: Receipt },

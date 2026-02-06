@@ -6,11 +6,13 @@ import { Search, Bell, LogOut, Plus } from 'lucide-react';
 import { useState } from 'react';
 import Link from 'next/link';
 import type { User } from '@/types';
+import { usePanelManager } from '@/components/layout/panel-manager';
 
 export function TopBar({ user }: { user: User | null }) {
   const [showMenu, setShowMenu] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+  const { openPanel } = usePanelManager();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -32,13 +34,14 @@ export function TopBar({ user }: { user: User | null }) {
 
       <div className="flex items-center gap-3">
         {/* New Deal button */}
-        <Link
-          href="/deals/new"
+        <button
+          type="button"
+          onClick={() => openPanel({ id: 'new-deal', type: 'new-deal', title: 'New Deal' })}
           className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors text-sm font-semibold"
         >
           <Plus className="w-4 h-4" />
-          New Deal
-        </Link>
+          + New Deal
+        </button>
 
         {/* Notifications */}
         <button className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">

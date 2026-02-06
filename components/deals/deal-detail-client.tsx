@@ -18,9 +18,18 @@ interface Props {
   contracts: Contract[];
   files: FileRecord[];
   invoices: Invoice[];
+  variant?: 'page' | 'panel';
 }
 
-export function DealDetailClient({ deal: initialDeal, deliverables: initialDeliverables, contracts, files, invoices }: Props) {
+export function DealDetailClient({
+  deal: initialDeal,
+  deliverables: initialDeliverables,
+  contracts,
+  files,
+  invoices,
+  variant = 'page',
+}: Props) {
+  const isPanel = variant === 'panel';
   const [deal, setDeal] = useState(initialDeal);
   const [deliverables, setDeliverables] = useState(initialDeliverables);
   const [activeTab, setActiveTab] = useState<'overview' | 'deliverables' | 'files' | 'invoices'>('overview');
@@ -102,9 +111,11 @@ export function DealDetailClient({ deal: initialDeal, deliverables: initialDeliv
   return (
     <div className="max-w-4xl mx-auto">
       {/* Back nav */}
-      <Link href="/pipeline" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-4">
-        <ArrowLeft className="w-4 h-4" /> Pipeline
-      </Link>
+      {!isPanel && (
+        <Link href="/pipeline" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-4">
+          <ArrowLeft className="w-4 h-4" /> Pipeline
+        </Link>
+      )}
 
       {/* Header */}
       <div className="bg-white rounded-xl border border-gray-100 p-6 mb-6 shadow-card">

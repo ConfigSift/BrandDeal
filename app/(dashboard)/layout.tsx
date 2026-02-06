@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
+import { PanelProvider } from '@/components/layout/panel-manager';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = createServerSupabaseClient();
@@ -16,14 +17,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .single();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface-50">
-      <Sidebar user={profile} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar user={profile} />
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
-        </main>
+    <PanelProvider>
+      <div className="flex h-screen overflow-hidden bg-surface-50">
+        <Sidebar user={profile} />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <TopBar user={profile} />
+          <main className="flex-1 overflow-y-auto p-6">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </PanelProvider>
   );
 }
