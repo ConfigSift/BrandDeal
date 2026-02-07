@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Deal, Brand } from '@/types';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, cn } from '@/lib/utils';
 import { ArrowLeft, Plus, Trash2, Save } from 'lucide-react';
 import Link from 'next/link';
+import { invoiceSchema } from '@/lib/validations';
 
 export default function NewInvoicePage() {
   const router = useRouter();
@@ -14,6 +15,7 @@ export default function NewInvoicePage() {
   const dealId = searchParams.get('deal_id');
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [deals, setDeals] = useState<(Deal & { brand: Brand | null })[]>([]);
   const [form, setForm] = useState({
     deal_id: dealId || '',
@@ -40,6 +42,19 @@ export default function NewInvoicePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const result = invoiceSchema.safeParse(form);
+    if (!result.success) {
+      const fieldErrors: Record<string, string> = {};
+      result.error.errors.forEach((err) => {
+        const key = err.path[0] as string;
+        if (key && !fieldErrors[key]) fieldErrors[key] = err.message;
+      });
+      setErrors(fieldErrors);
+      return;
+    }
+    setErrors({});
+
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -72,11 +87,12 @@ export default function NewInvoicePage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Deal *</label>
-            <select value={form.deal_id} onChange={e => setForm(p => ({ ...p, deal_id: e.target.value }))} required
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none">
+            <select value={form.deal_id} onChange={e => { setForm(p => ({ ...p, deal_id: e.target.value })); setErrors(p => { const { deal_id: _, ...r } = p; return r; }); }}
+              className={cn("w-full px-4 py-3 border rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none", errors.deal_id ? 'border-red-300' : 'border-gray-200')}>
               <option value="">Select deal...</option>
               {deals.map(d => <option key={d.id} value={d.id}>{d.title} {d.brand ? `(${d.brand.name})` : ''}</option>)}
             </select>
+            {errors.deal_id && <p className="text-xs text-red-500 mt-1">{errors.deal_id}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Due Date</label>
@@ -109,6 +125,7 @@ export default function NewInvoicePage() {
             className="mt-2 text-sm text-brand-500 hover:text-brand-600 flex items-center gap-1 font-medium">
             <Plus className="w-4 h-4" /> Add line item
           </button>
+          {errors.line_items && <p className="text-xs text-red-500 mt-1">{errors.line_items}</p>}
         </div>
 
         {/* Total */}

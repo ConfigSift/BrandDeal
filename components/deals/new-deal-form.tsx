@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save, Plus } from 'lucide-react';
+import { ArrowLeft, Save, Plus, AlertTriangle, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { Brand, Contact, DealStatus, DealSource } from '@/types';
+import { Brand, Contact, DealStatus, DealSource, SubscriptionTier } from '@/types';
 import { DEAL_STAGES, cn } from '@/lib/utils';
+import { getFeatureLimit } from '@/lib/feature-gates';
+import { PricingModal } from '@/components/billing/pricing-modal';
+import { dealSchema } from '@/lib/validations';
 
 type NewDealFormProps = {
   variant?: 'page' | 'panel';
@@ -29,6 +32,10 @@ export function NewDealForm({
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [showNewBrand, setShowNewBrand] = useState(false);
   const [newBrandName, setNewBrandName] = useState('');
+  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('free');
+  const [activeDealCount, setActiveDealCount] = useState(0);
+  const [showPricing, setShowPricing] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [form, setForm] = useState({
     title: '',
@@ -46,8 +53,19 @@ export function NewDealForm({
 
   useEffect(() => {
     async function loadData() {
-      const { data: b } = await supabase.from('brands').select('*').order('name');
+      const [{ data: b }, { data: { user: authUser } }] = await Promise.all([
+        supabase.from('brands').select('*').order('name'),
+        supabase.auth.getUser(),
+      ]);
       if (b) setBrands(b);
+      if (authUser) {
+        const [{ data: profile }, { count }] = await Promise.all([
+          supabase.from('users').select('subscription_tier').eq('id', authUser.id).single(),
+          supabase.from('deals').select('*', { count: 'exact', head: true }).eq('user_id', authUser.id).eq('archived', false),
+        ]);
+        if (profile?.subscription_tier) setSubscriptionTier(profile.subscription_tier as SubscriptionTier);
+        setActiveDealCount(count || 0);
+      }
     }
     loadData();
   }, [supabase]);
@@ -85,8 +103,37 @@ export function NewDealForm({
     }
   };
 
+  const dealLimit = getFeatureLimit(subscriptionTier, 'max_active_deals') as number;
+  const atDealLimit = subscriptionTier === 'free' && activeDealCount >= dealLimit;
+
+  const validateField = (field: string, value: string) => {
+    if (field === 'title' && !value.trim()) {
+      setErrors(prev => ({ ...prev, title: 'Title is required' }));
+    } else {
+      setErrors(prev => { const { [field]: _, ...rest } = prev; return rest; });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const result = dealSchema.safeParse(form);
+    if (!result.success) {
+      const fieldErrors: Record<string, string> = {};
+      result.error.errors.forEach((err) => {
+        const key = err.path[0] as string;
+        if (key && !fieldErrors[key]) fieldErrors[key] = err.message;
+      });
+      setErrors(fieldErrors);
+      return;
+    }
+    setErrors({});
+
+    if (atDealLimit) {
+      setShowPricing(true);
+      return;
+    }
+
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -136,18 +183,41 @@ export function NewDealForm({
         <h1 className="text-2xl font-display font-bold text-midnight-800 mb-6">Create New Deal</h1>
       )}
 
+      {atDealLimit && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl mb-4">
+          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-amber-800">
+              You&apos;ve used {activeDealCount}/{dealLimit} free deals
+            </p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              Upgrade to Pro or Elite for unlimited deals.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPricing(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-500 text-white text-xs font-semibold rounded-lg hover:bg-brand-600 transition-colors flex-shrink-0"
+          >
+            <Zap className="w-3 h-3" />
+            Upgrade
+          </button>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Deal Title */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">Deal Title *</label>
           <input
             type="text"
-            required
             value={form.title}
-            onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none text-sm"
+            onChange={(e) => { setForm((p) => ({ ...p, title: e.target.value })); if (errors.title) validateField('title', e.target.value); }}
+            onBlur={(e) => validateField('title', e.target.value)}
+            className={cn("w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none text-sm", errors.title ? 'border-red-300' : 'border-gray-200')}
             placeholder="e.g. Nike Summer Campaign 2026"
           />
+          {errors.title && <p className="text-xs text-red-500 mt-1">{errors.title}</p>}
         </div>
 
         {/* Brand */}
@@ -338,6 +408,13 @@ export function NewDealForm({
           )}
         </div>
       </form>
+
+      {showPricing && (
+        <PricingModal
+          currentTier={subscriptionTier}
+          onClose={() => setShowPricing(false)}
+        />
+      )}
     </div>
   );
 }

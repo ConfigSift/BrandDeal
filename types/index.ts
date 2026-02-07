@@ -7,6 +7,13 @@ export type InvoiceStatus = 'draft' | 'sent' | 'overdue' | 'paid';
 export type ReminderType = 'deliverable_due' | 'invoice_overdue' | 'follow_up' | 'stale_lead' | 'payment_due';
 export type SubscriptionTier = 'free' | 'pro' | 'elite';
 
+export interface NotificationPreferences {
+  deliverables: boolean;
+  invoices: boolean;
+  stale_leads: boolean;
+  inbox: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -24,6 +31,7 @@ export interface User {
   forwarding_address: string | null;
   timezone: string;
   reminder_email_frequency: string;
+  notification_preferences: NotificationPreferences | null;
   onboarding_completed: boolean;
   created_at: string;
   updated_at: string;

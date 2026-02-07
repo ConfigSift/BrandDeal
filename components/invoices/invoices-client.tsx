@@ -57,7 +57,7 @@ export function InvoicesClient({ invoices }: Props) {
               return (
                 <tr key={inv.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                   <td className="px-5 py-4">
-                    <Link href={`/invoices/${inv.id}`} className="font-medium text-sm text-midnight-800 hover:text-brand-500">
+                    <Link href={`/invoices/${inv.id}`} prefetch={false} className="font-medium text-sm text-midnight-800 hover:text-brand-500">
                       #{inv.invoice_number}
                     </Link>
                   </td>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Deal, Deliverable, Contract, FileRecord, Invoice } from '@/types';
+import { Deal, Deliverable, Contract, FileRecord, Invoice, SubscriptionTier } from '@/types';
 import { DealDetailClient } from '@/components/deals/deal-detail-client';
 
 type DealDetailData = {
@@ -11,6 +11,7 @@ type DealDetailData = {
   contracts: Contract[];
   files: FileRecord[];
   invoices: Invoice[];
+  subscriptionTier: SubscriptionTier;
 };
 
 export function DealDetailPanel({ dealId }: { dealId: string }) {
@@ -35,11 +36,16 @@ export function DealDetailPanel({ dealId }: { dealId: string }) {
         return;
       }
 
-      const [deliverablesRes, contractsRes, filesRes, invoicesRes] = await Promise.all([
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+
+      const [deliverablesRes, contractsRes, filesRes, invoicesRes, userRes] = await Promise.all([
         supabase.from('deliverables').select('*').eq('deal_id', deal.id).order('sort_order'),
         supabase.from('contracts').select('*').eq('deal_id', deal.id).order('uploaded_at', { ascending: false }),
         supabase.from('files').select('*').eq('deal_id', deal.id).order('uploaded_at', { ascending: false }),
         supabase.from('invoices').select('*').eq('deal_id', deal.id).order('created_at', { ascending: false }),
+        authUser
+          ? supabase.from('users').select('subscription_tier').eq('id', authUser.id).single()
+          : Promise.resolve({ data: null }),
       ]);
 
       if (isMounted) {
@@ -51,6 +57,7 @@ export function DealDetailPanel({ dealId }: { dealId: string }) {
             contracts: contractsRes.data || [],
             files: filesRes.data || [],
             invoices: invoicesRes.data || [],
+            subscriptionTier: (userRes.data?.subscription_tier as SubscriptionTier) || 'free',
           },
         });
       }
@@ -84,6 +91,7 @@ export function DealDetailPanel({ dealId }: { dealId: string }) {
       contracts={state.data.contracts}
       files={state.data.files}
       invoices={state.data.invoices}
+      subscriptionTier={state.data.subscriptionTier}
       variant="panel"
     />
   );

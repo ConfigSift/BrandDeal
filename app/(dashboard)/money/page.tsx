@@ -1,5 +1,34 @@
+import type { Metadata } from 'next';
+import dynamic from 'next/dynamic';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { MoneyDashboard } from '@/components/money/money-dashboard';
+
+const MoneyDashboard = dynamic(
+  () => import('@/components/money/money-dashboard').then(m => m.MoneyDashboard),
+  {
+    ssr: false,
+    loading: () => <MoneyLoadingSkeleton />,
+  }
+);
+
+function MoneyLoadingSkeleton() {
+  return (
+    <div className="animate-pulse">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="bg-white rounded-xl border border-gray-100 p-5 shadow-card">
+            <div className="h-3 w-20 bg-gray-100 rounded mb-3" />
+            <div className="h-7 w-28 bg-gray-200 rounded-lg" />
+          </div>
+        ))}
+      </div>
+      <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-card">
+        <div className="h-64 bg-gray-50 rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
+export const metadata: Metadata = { title: 'Money Dashboard' };
 
 export default async function MoneyPage() {
   const supabase = createServerSupabaseClient();

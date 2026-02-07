@@ -1,6 +1,6 @@
 import {
   LayoutGrid, Users, Building2, Receipt, DollarSign,
-  Calendar, Settings,
+  Calendar, Settings, Mail,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -12,6 +12,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: '/pipeline', label: 'Pipeline', icon: LayoutGrid },
+  { href: '/inbox', label: 'Inbox', icon: Mail },
   { href: '/brands', label: 'Brands', icon: Building2 },
   { href: '/contacts', label: 'Contacts', icon: Users },
   { href: '/invoices', label: 'Invoices', icon: Receipt },

@@ -4,6 +4,9 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Contact, Brand } from '@/types';
 import { Users, Plus, Mail, Phone, Building2, Trash2, Star, StarOff } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { contactSchema } from '@/lib/validations';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface Props {
   contacts: (Contact & { brand: Brand })[];
@@ -14,10 +17,22 @@ export function ContactsClient({ contacts: initial, brands }: Props) {
   const [contacts, setContacts] = useState(initial);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '', title: '', brand_id: '', is_primary: false });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const supabase = createClient();
 
   const handleAdd = async () => {
-    if (!form.name.trim() || !form.brand_id) return;
+    const result = contactSchema.safeParse(form);
+    if (!result.success) {
+      const fieldErrors: Record<string, string> = {};
+      result.error.errors.forEach((err) => {
+        const key = err.path[0] as string;
+        if (key && !fieldErrors[key]) fieldErrors[key] = err.message;
+      });
+      setErrors(fieldErrors);
+      return;
+    }
+    setErrors({});
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { data } = await supabase.from('contacts').insert({
@@ -32,9 +47,9 @@ export function ContactsClient({ contacts: initial, brands }: Props) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this contact?')) return;
     const { error } = await supabase.from('contacts').delete().eq('id', id);
     if (!error) setContacts(prev => prev.filter(c => c.id !== id));
+    setDeleteId(null);
   };
 
   return (
@@ -53,17 +68,28 @@ export function ContactsClient({ contacts: initial, brands }: Props) {
       {showAdd && (
         <div className="bg-white rounded-xl border border-brand-200 p-5 mb-4 shadow-card space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <input type="text" placeholder="Name *" autoFocus value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none" />
-            <select value={form.brand_id} onChange={e => setForm(p => ({ ...p, brand_id: e.target.value }))}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none">
-              <option value="">Select brand *</option>
-              {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            <div>
+              <input type="text" placeholder="Name *" autoFocus value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                onBlur={() => { if (!form.name.trim()) setErrors(p => ({ ...p, name: 'Name is required' })); else setErrors(p => { const { name: _, ...r } = p; return r; }); }}
+                className={cn("w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none", errors.name ? 'border-red-300' : 'border-gray-200')} />
+              {errors.name && <p className="text-xs text-red-500 mt-0.5">{errors.name}</p>}
+            </div>
+            <div>
+              <select value={form.brand_id} onChange={e => setForm(p => ({ ...p, brand_id: e.target.value }))}
+                className={cn("w-full px-3 py-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none", errors.brand_id ? 'border-red-300' : 'border-gray-200')}>
+                <option value="">Select brand *</option>
+                {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              {errors.brand_id && <p className="text-xs text-red-500 mt-0.5">{errors.brand_id}</p>}
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <input type="email" placeholder="Email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none" />
+            <div>
+              <input type="email" placeholder="Email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                onBlur={() => { if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) setErrors(p => ({ ...p, email: 'Enter a valid email' })); else setErrors(p => { const { email: _, ...r } = p; return r; }); }}
+                className={cn("w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none", errors.email ? 'border-red-300' : 'border-gray-200')} />
+              {errors.email && <p className="text-xs text-red-500 mt-0.5">{errors.email}</p>}
+            </div>
             <input type="text" placeholder="Phone" value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
               className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none" />
             <input type="text" placeholder="Title (e.g. Marketing Manager)" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
@@ -105,7 +131,7 @@ export function ContactsClient({ contacts: initial, brands }: Props) {
               {contact.phone && (
                 <span className="text-xs text-gray-500 flex items-center gap-1"><Phone className="w-3 h-3" /> {contact.phone}</span>
               )}
-              <button onClick={() => handleDelete(contact.id)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50">
+              <button onClick={() => setDeleteId(contact.id)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -119,6 +145,16 @@ export function ContactsClient({ contacts: initial, brands }: Props) {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={!!deleteId}
+        title="Delete this contact?"
+        description="This contact will be permanently removed."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => deleteId && handleDelete(deleteId)}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }

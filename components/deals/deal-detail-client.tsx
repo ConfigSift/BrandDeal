@@ -4,13 +4,17 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { Deal, Deliverable, Contract, FileRecord, Invoice, DeliverableStatus, DeliverablePlatform, ContentType, Brand, Contact } from '@/types';
+import { Deal, Deliverable, Contract, FileRecord, Invoice, DeliverableStatus, DeliverablePlatform, ContentType, Brand, Contact, SubscriptionTier } from '@/types';
 import { formatCurrency, formatDate, formatRelativeDate, getStageConfig, DEAL_STAGES, DELIVERABLE_STATUS_CONFIG, PLATFORM_CONFIG, CONTENT_TYPE_CONFIG, INVOICE_STATUS_CONFIG, cn } from '@/lib/utils';
 import {
   ArrowLeft, Building2, User, DollarSign, Calendar, Clock, FileText,
   CheckCircle2, Circle, Upload, Plus, Trash2, ExternalLink, MoreHorizontal,
-  Package, Receipt, Paperclip, StickyNote, Edit2, Save, X, Archive, AlertTriangle
+  Package, Receipt, Paperclip, StickyNote, Edit2, Save, X, Archive, AlertTriangle,
+  Sparkles, Loader2, Lock,
 } from 'lucide-react';
+import { ContractReview } from '@/components/deals/contract-review';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { toast } from '@/components/ui/toaster';
 
 interface Props {
   deal: Deal;
@@ -18,25 +22,31 @@ interface Props {
   contracts: Contract[];
   files: FileRecord[];
   invoices: Invoice[];
+  subscriptionTier?: SubscriptionTier;
   variant?: 'page' | 'panel';
 }
 
 export function DealDetailClient({
   deal: initialDeal,
   deliverables: initialDeliverables,
-  contracts,
+  contracts: initialContracts,
   files,
   invoices,
+  subscriptionTier = 'free',
   variant = 'page',
 }: Props) {
   const isPanel = variant === 'panel';
   const [deal, setDeal] = useState(initialDeal);
   const [deliverables, setDeliverables] = useState(initialDeliverables);
+  const [contractsList, setContractsList] = useState(initialContracts);
   const [activeTab, setActiveTab] = useState<'overview' | 'deliverables' | 'files' | 'invoices'>('overview');
   const [showAddDeliverable, setShowAddDeliverable] = useState(false);
+  const [extractingIds, setExtractingIds] = useState<Set<string>>(new Set());
+  const [reviewingContract, setReviewingContract] = useState<Contract | null>(null);
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const stageConfig = getStageConfig(deal.status);
+  const isPaidTier = subscriptionTier === 'pro' || subscriptionTier === 'elite';
 
   // --- Edit mode state ---
   const [editing, setEditing] = useState(false);
@@ -62,6 +72,7 @@ export function DealDetailClient({
   // --- More menu state ---
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
   // --- Load brands/contacts when entering edit mode ---
   useEffect(() => {
@@ -223,16 +234,79 @@ export function DealDetailClient({
     const { error: uploadError } = await supabase.storage.from('deal-files').upload(filePath, file);
     if (uploadError) return;
 
-    const { data: { publicUrl } } = supabase.storage.from('deal-files').getPublicUrl(filePath);
-    await supabase.from('files').insert({
-      deal_id: deal.id,
-      user_id: user.id,
-      file_url: filePath,
-      file_name: file.name,
-      file_type: file.type,
-      file_size: file.size,
-    });
-    router.refresh();
+    const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+
+    if (isPdf) {
+      // Insert as a contract
+      const { data: newContract, error: contractError } = await supabase.from('contracts').insert({
+        deal_id: deal.id,
+        user_id: user.id,
+        file_url: filePath,
+        file_name: file.name,
+        file_size: file.size,
+        extraction_confidence: 'none',
+        extracted_data: null,
+        reviewed: false,
+      }).select().single();
+
+      if (contractError || !newContract) {
+        router.refresh();
+        return;
+      }
+
+      setContractsList(prev => [newContract, ...prev]);
+
+      // Trigger AI extraction for paid tiers
+      if (isPaidTier) {
+        triggerExtraction(newContract.id, filePath);
+      }
+    } else {
+      // Insert as a regular file
+      await supabase.from('files').insert({
+        deal_id: deal.id,
+        user_id: user.id,
+        file_url: filePath,
+        file_name: file.name,
+        file_type: file.type,
+        file_size: file.size,
+      });
+      router.refresh();
+    }
+  };
+
+  const triggerExtraction = async (contractId: string, fileUrl: string) => {
+    setExtractingIds(prev => new Set(prev).add(contractId));
+
+    try {
+      const res = await fetch('/api/contracts/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contract_id: contractId, file_url: fileUrl }),
+      });
+
+      const result = await res.json();
+
+      if (res.ok && result.extracted_data) {
+        setContractsList(prev => prev.map(c =>
+          c.id === contractId
+            ? { ...c, extracted_data: result.extracted_data, extraction_confidence: result.confidence }
+            : c
+        ));
+        toast({ title: 'Contract extracted', description: `Confidence: ${result.confidence}` });
+      } else if (result.limit_reached) {
+        toast({ title: 'Extraction limit reached', description: result.error, variant: 'error' });
+      } else {
+        toast({ title: 'Extraction issue', description: result.error || 'Could not extract data' });
+      }
+    } catch {
+      toast({ title: 'Extraction failed', variant: 'error' });
+    } finally {
+      setExtractingIds(prev => {
+        const next = new Set(prev);
+        next.delete(contractId);
+        return next;
+      });
+    }
   };
 
   const inputClass = "px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none";
@@ -240,7 +314,7 @@ export function DealDetailClient({
   const tabs = [
     { id: 'overview', label: 'Overview', icon: StickyNote },
     { id: 'deliverables', label: `Deliverables (${deliverables.length})`, icon: Package },
-    { id: 'files', label: `Files (${files.length + contracts.length})`, icon: Paperclip },
+    { id: 'files', label: `Files (${files.length + contractsList.length})`, icon: Paperclip },
     { id: 'invoices', label: `Invoices (${invoices.length})`, icon: Receipt },
   ] as const;
 
@@ -359,41 +433,19 @@ export function DealDetailClient({
                       <div className="fixed inset-0 z-40" onClick={() => { setShowMoreMenu(false); setShowDeleteConfirm(false); }} />
                       <div className="absolute right-0 top-full mt-2 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2">
                         <button
-                          onClick={() => { handleArchive(); setShowMoreMenu(false); }}
+                          onClick={() => { setShowArchiveConfirm(true); setShowMoreMenu(false); }}
                           className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors w-full"
                         >
                           <Archive className="w-4 h-4" />
                           Archive Deal
                         </button>
-                        {!showDeleteConfirm ? (
-                          <button
-                            onClick={() => setShowDeleteConfirm(true)}
-                            className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors w-full"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Delete Deal
-                          </button>
-                        ) : (
-                          <div className="px-4 py-2 space-y-2 border-t border-gray-100 mt-1 pt-2">
-                            <p className="text-xs text-red-600 flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" /> This cannot be undone
-                            </p>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => { handleDelete(); setShowMoreMenu(false); }}
-                                className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600"
-                              >
-                                Confirm
-                              </button>
-                              <button
-                                onClick={() => setShowDeleteConfirm(false)}
-                                className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        <button
+                          onClick={() => { setShowDeleteConfirm(true); setShowMoreMenu(false); }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors w-full"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete Deal
+                        </button>
                       </div>
                     </>
                   )}
@@ -595,23 +647,87 @@ export function DealDetailClient({
 
       {activeTab === 'files' && (
         <div className="space-y-3">
-          {[...contracts.map(c => ({ ...c, _type: 'contract' as const })), ...files.map(f => ({ ...f, _type: 'file' as const }))].map((item) => (
-            <div key={item.id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-card flex items-center gap-4">
-              <div className="w-10 h-10 bg-brand-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                <FileText className="w-5 h-5 text-brand-500" />
+          {/* Contracts */}
+          {contractsList.map(c => {
+            const isExtracting = extractingIds.has(c.id);
+            const hasExtraction = c.extraction_confidence !== 'none' && c.extracted_data;
+            return (
+              <div key={c.id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-card">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-brand-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5 text-brand-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{c.file_name || 'Untitled contract'}</p>
+                    <p className="text-xs text-gray-400">Contract · {formatDate(c.uploaded_at)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {isExtracting && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-brand-50 text-brand-600 rounded-full text-xs font-medium">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Extracting with AI...
+                      </span>
+                    )}
+                    {!isExtracting && hasExtraction && (
+                      <>
+                        <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
+                          c.extraction_confidence === 'high' ? 'bg-emerald-100 text-emerald-700' :
+                          c.extraction_confidence === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                        )}>
+                          <Sparkles className="w-3 h-3" />
+                          AI Extracted
+                          {c.reviewed && <CheckCircle2 className="w-3 h-3 ml-0.5" />}
+                        </span>
+                        <button
+                          onClick={() => setReviewingContract(c)}
+                          className="px-3 py-1.5 text-xs font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
+                        >
+                          Review
+                        </button>
+                      </>
+                    )}
+                    {!isExtracting && !hasExtraction && !isPaidTier && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 text-gray-500 rounded-full text-xs font-medium">
+                        <Lock className="w-3 h-3" />
+                        Pro feature
+                      </span>
+                    )}
+                    {!isExtracting && !hasExtraction && isPaidTier && (
+                      <button
+                        onClick={() => triggerExtraction(c.id, c.file_url)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Extract with AI
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {/* Upsell for free users */}
+                {!isPaidTier && !hasExtraction && (
+                  <div className="mt-3 px-4 py-2.5 bg-gradient-to-r from-brand-50 to-purple-50 rounded-lg flex items-center justify-between">
+                    <p className="text-xs text-gray-600">
+                      <span className="font-semibold text-brand-600">Upgrade to Pro</span> to automatically extract payment, deliverables, and usage rights from contracts with AI.
+                    </p>
+                    <Link href="/settings" className="text-xs font-semibold text-brand-600 hover:text-brand-700 flex-shrink-0 ml-3">
+                      Upgrade
+                    </Link>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Regular files */}
+          {files.map(f => (
+            <div key={f.id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-card flex items-center gap-4">
+              <div className="w-10 h-10 bg-gray-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Paperclip className="w-5 h-5 text-gray-400" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{item.file_name || 'Untitled file'}</p>
-                <p className="text-xs text-gray-400">{item._type === 'contract' ? 'Contract' : 'File'} · {formatDate(item._type === 'contract' ? item.uploaded_at : item.uploaded_at)}</p>
+                <p className="font-medium text-sm truncate">{f.file_name || 'Untitled file'}</p>
+                <p className="text-xs text-gray-400">File · {formatDate(f.uploaded_at)}</p>
               </div>
-              {item._type === 'contract' && item.extraction_confidence !== 'none' && (
-                <span className={cn("text-xs px-2 py-1 rounded-full font-medium",
-                  item.extraction_confidence === 'high' ? 'bg-emerald-100 text-emerald-700' :
-                  item.extraction_confidence === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-                )}>
-                  AI Extracted
-                </span>
-              )}
             </div>
           ))}
 
@@ -622,12 +738,25 @@ export function DealDetailClient({
         </div>
       )}
 
+      {/* Contract Review Modal */}
+      {reviewingContract && (
+        <ContractReview
+          contract={reviewingContract}
+          deal={deal}
+          onClose={() => setReviewingContract(null)}
+          onSaved={() => {
+            setReviewingContract(null);
+            router.refresh();
+          }}
+        />
+      )}
+
       {activeTab === 'invoices' && (
         <div className="space-y-3">
           {invoices.map((inv) => {
             const statusConfig = INVOICE_STATUS_CONFIG[inv.status];
             return (
-              <Link key={inv.id} href={`/invoices/${inv.id}`}
+              <Link key={inv.id} href={`/invoices/${inv.id}`} prefetch={false}
                 className="bg-white rounded-xl border border-gray-100 p-4 shadow-card flex items-center gap-4 hover:shadow-card-hover transition-all block">
                 <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center flex-shrink-0">
                   <Receipt className="w-5 h-5 text-emerald-600" />
@@ -647,6 +776,26 @@ export function DealDetailClient({
           </Link>
         </div>
       )}
+
+      {/* Confirmation Dialogs */}
+      <ConfirmDialog
+        isOpen={showArchiveConfirm}
+        title="Archive this deal?"
+        description="The deal will be hidden from your pipeline but can be restored later."
+        confirmLabel="Archive"
+        variant="default"
+        onConfirm={() => { setShowArchiveConfirm(false); handleArchive(); }}
+        onCancel={() => setShowArchiveConfirm(false)}
+      />
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        title="Delete this deal?"
+        description="This will permanently delete the deal and all associated deliverables, files, and invoices. This cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => { setShowDeleteConfirm(false); handleDelete(); }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }
