@@ -3,24 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import {
-  LayoutGrid, Users, Building2, Receipt,
-  Calendar, Settings, Zap, CreditCard, ChevronLeft
-} from 'lucide-react';
+import { NAV_ITEMS, BOTTOM_ITEMS } from '@/lib/navigation';
+import { Zap, CreditCard, ChevronLeft } from 'lucide-react';
 import { useState } from 'react';
 import type { User } from '@/types';
-
-const NAV_ITEMS = [
-  { href: '/pipeline', label: 'Pipeline', icon: LayoutGrid },
-  { href: '/brands', label: 'Brands', icon: Building2 },
-  { href: '/contacts', label: 'Contacts', icon: Users },
-  { href: '/invoices', label: 'Invoices', icon: Receipt },
-  { href: '/calendar', label: 'Calendar', icon: Calendar },
-];
-
-const BOTTOM_ITEMS = [
-  { href: '/settings', label: 'Settings', icon: Settings },
-];
 
 export function Sidebar({ user }: { user: User | null }) {
   const pathname = usePathname();

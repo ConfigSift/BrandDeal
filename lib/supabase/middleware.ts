@@ -5,6 +5,9 @@ type CookiesToSet = Parameters<SetAllCookies>[0];
 type CookieToSet = CookiesToSet[number];
 
 export async function updateSession(request: NextRequest) {
+  // Forward pathname to server components via request header
+  request.headers.set('x-pathname', request.nextUrl.pathname);
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

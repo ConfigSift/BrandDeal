@@ -1,8 +1,8 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { Sidebar } from '@/components/layout/sidebar';
-import { TopBar } from '@/components/layout/top-bar';
+import { headers } from 'next/headers';
 import { PanelProvider } from '@/components/layout/panel-manager';
+import { DashboardShell } from '@/components/layout/dashboard-shell';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = createServerSupabaseClient();
@@ -16,17 +16,28 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .eq('id', user.id)
     .single();
 
+  const pathname = headers().get('x-pathname') || '';
+  const isOnboarding = pathname.startsWith('/onboarding');
+
+  // Redirect to onboarding if not completed (unless already there)
+  if (profile && !profile.onboarding_completed && !isOnboarding) {
+    redirect('/onboarding');
+  }
+
+  // Onboarding uses a minimal layout — no sidebar/topbar
+  if (isOnboarding) {
+    return (
+      <div className="min-h-screen bg-surface-50 flex items-center justify-center p-4">
+        {children}
+      </div>
+    );
+  }
+
   return (
     <PanelProvider>
-      <div className="flex h-screen overflow-hidden bg-surface-50">
-        <Sidebar user={profile} />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <TopBar user={profile} />
-          <main className="flex-1 overflow-y-auto p-6">
-            {children}
-          </main>
-        </div>
-      </div>
+      <DashboardShell user={profile}>
+        {children}
+      </DashboardShell>
     </PanelProvider>
   );
 }
